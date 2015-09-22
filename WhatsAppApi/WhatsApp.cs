@@ -8,6 +8,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 using WhatsAppApi.Helper;
 using WhatsAppApi.Parser;
@@ -21,9 +22,9 @@ namespace WhatsAppApi
     /// </summary>
     public class WhatsApp : WhatsSendBase
     {
-        public WhatsApp(string phoneNum, string imei, string nick, bool debug = false, bool hidden = false)
+        public WhatsApp(string phoneNum, string password, string nick, bool debug = false, bool hidden = false)
         {
-            this._constructBase(phoneNum, imei, nick, debug, hidden);
+            this._constructBase(phoneNum, password, nick, debug, hidden);
         }
 
         public string SendMessage(string to, string txt)
@@ -257,10 +258,12 @@ namespace WhatsAppApi
             this.uploadResponse = null;
             this.SendNode(node);
             int i = 0;
-            while (this.uploadResponse == null && i <= 10)
+            
+            while (this.uploadResponse == null && i <= 20)
             {
+                Thread.Sleep(100);
                 i++;
-                this.pollMessage();
+                //this.pollMessage();
             }
             if (this.uploadResponse != null && this.uploadResponse.GetChild("duplicate") != null)
             {
@@ -715,7 +718,7 @@ namespace WhatsAppApi
 
                 ProtocolTreeNode broadcastNode = new ProtocolTreeNode("broadcast", null, toNodes);
                 ProtocolTreeNode messageNode = new ProtocolTreeNode("message", new KeyValue[] {
-                    new KeyValue("to", "broadcast"),
+                    new KeyValue("to", message.identifier_key.remote_jid),
                     new KeyValue("type", message.media_wa_type == FMessage.Type.Undefined?"text":"media"),
                     new KeyValue("id", message.identifier_key.id)
                 }, new ProtocolTreeNode[] {
@@ -725,6 +728,43 @@ namespace WhatsAppApi
                 });
                 this.SendNode(messageNode);
             }
+        }
+
+        public void SendGetBroadcastLists()
+        {
+            string id = TicketCounter.MakeId("get_lists_");
+            var listNode = new ProtocolTreeNode("lists", null);
+            var node = new ProtocolTreeNode("iq", new[]
+            {
+                new KeyValue("to", "s.whatsapp.net"),
+                new KeyValue("id", id),
+                new KeyValue("xmlns", "w:b"),
+                new KeyValue("type", "get")
+            }, new[] { listNode });
+
+            SendNode(node);
+        }
+
+        public void sendDeleteBroadcastLists(IEnumerable<string> listIds)
+        {
+            if (listIds == null) return;
+
+            string id = TicketCounter.MakeId(string.Empty);
+            var listNodes = new List<ProtocolTreeNode>();
+            foreach (var listId in listIds)
+            {
+                listNodes.Add(new ProtocolTreeNode("list", new List<KeyValue> { new KeyValue("id", listId) }, null, null));
+            }
+            var deleteNode = new ProtocolTreeNode("delete", null, listNodes, null);
+            var node = new ProtocolTreeNode("iq", new[]
+            {
+                new KeyValue("to", "s.whatsapp.net"),
+                new KeyValue("id", id),
+                new KeyValue("xmlns", "w:b"),
+                new KeyValue("type", "set")
+            }, new[] { deleteNode });
+
+            SendNode(node);
         }
 
         public void SendNop()
